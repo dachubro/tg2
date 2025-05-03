@@ -2,13 +2,26 @@ import os
 import requests
 from telegram import Update, File
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# Environment variables from Render dashboard
+# Environment variables from Render
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 BUNNY_STORAGE_ZONE = os.environ["BUNNY_STORAGE_ZONE"]
 BUNNY_API_KEY = os.environ["BUNNY_API_KEY"]
 BUNNY_STORAGE_HOST = os.environ.get("BUNNY_STORAGE_HOST", "storage.bunnycdn.com")
 
+# Simple HTTP server for health check (required by Render)
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'OK')  # Respond with "OK" for health check
+
+# Function to run the HTTP server
+def run_http_server():
+    server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
+    server.serve_forever()
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
@@ -39,8 +52,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"❌ Upload failed. Status code: {response.status_code}")
 
-
 if __name__ == "__main__":
+    # Start the HTTP server in a separate thread for health check
+    from threading import Thread
+    health_thread = Thread(target=run_http_server)
+    health_thread.daemon = True
+    health_thread.start()
+
+    # Start the Telegram bot
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     print("📦 Bot is running...")
